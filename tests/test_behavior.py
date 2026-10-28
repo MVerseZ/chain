@@ -27,8 +27,8 @@ async def run_and_collect(graph, question: str, thread_id: str):
         stream_mode="updates",
     ):
         # event — словарь {node_name: state_update}
-        for node_name in event.keys():
-            visited.append(node_name)
+        for node_name in event:
+            visited.append(node_name)  # noqa: PERF402
 
     final_state = await graph.aget_state(config)
     return final_state.values, visited
@@ -45,7 +45,9 @@ async def test_weather_question_triggers_search(graph):
 async def test_capital_question_does_not_search(graph):
     """Вопрос о столице не должен вызывать поиск."""
     _, visited = await run_and_collect(graph, "Столица Франции?", "t2")
-    assert "search" not in visited, f"Поиск не должен был вызываться, но visited = {visited}"
+    assert "search" not in visited, (
+        f"Поиск не должен был вызываться, но visited = {visited}"
+    )
     assert "answer" in visited, f"Ожидался answer, но visited = {visited}"
 
 
@@ -61,7 +63,9 @@ async def test_standalone_question_is_rewritten(graph):
     # 2. Задаём вопрос с отсылкой «там»
     final_state, visited = await run_and_collect(graph, "А какая там погода?", "t3")
 
-    assert "search" in visited, f"Standalone-вопрос должен вызывать поиск, visited = {visited}"
+    assert "search" in visited, (
+        f"Standalone-вопрос должен вызывать поиск, visited = {visited}"
+    )
 
     standalone = final_state.get("standalone_question", "")
     assert "Париж" in standalone or "Paris" in standalone, (

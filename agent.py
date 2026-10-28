@@ -1,18 +1,15 @@
-import os
-import re
 import asyncio
 import logging
+import os
+import re
 from pathlib import Path
-from typing import TypedDict, Literal, NotRequired, List, Dict, Annotated
+from typing import Annotated, Literal, NotRequired, TypedDict
 
 from dotenv import load_dotenv
-
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
-from langchain_core.messages import (
-    BaseMessage, HumanMessage, AIMessage, RemoveMessage
-)
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage
 from langchain_openai import ChatOpenAI
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
 from tavily import TavilyClient
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
@@ -21,7 +18,9 @@ logger = logging.getLogger(__name__)
 env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-print("OPENROUTER_API_KEY:", "OK" if os.environ.get("OPENROUTER_API_KEY") else "НЕ НАЙДЕН")
+print(
+    "OPENROUTER_API_KEY:", "OK" if os.environ.get("OPENROUTER_API_KEY") else "НЕ НАЙДЕН"
+)
 print("TAVILY_API_KEY:", "OK" if os.environ.get("TAVILY_API_KEY") else "НЕ НАЙДЕН")
 
 llm = ChatOpenAI(
@@ -35,11 +34,12 @@ llm = ChatOpenAI(
 
 tavily = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
 
+
 class AgentState(TypedDict):
-    messages: Annotated[List[BaseMessage], add_messages]
+    messages: Annotated[list[BaseMessage], add_messages]
     summary: NotRequired[str]
     intent: NotRequired[Literal["search", "answer"]]
-    search_results: NotRequired[List[Dict]]
+    search_results: NotRequired[list[dict]]
     final_answer: NotRequired[str]
     standalone_question: NotRequired[str]
     search_query: NotRequired[str]
@@ -47,13 +47,15 @@ class AgentState(TypedDict):
     retry_count: NotRequired[int]
     max_retries: NotRequired[int]
 
+
 MAX_RETRIES = 2
 KEEP_LAST_MESSAGES = 4
 SUMMARIZE_THRESHOLD = 6
 
 # --- Все узлы теперь async ---
 
-async def summarize_history(state: AgentState) -> Dict:
+
+async def summarize_history(state: AgentState) -> dict:
     messages = state.get("messages", [])
     if len(messages) <= SUMMARIZE_THRESHOLD:
         return {}
@@ -75,7 +77,7 @@ async def summarize_history(state: AgentState) -> Dict:
     return {"summary": new_summary, "messages": removals}
 
 
-async def classify_intent(state: AgentState) -> Dict:
+async def classify_intent(state: AgentState) -> dict:
     history_text = ""
     for msg in state["messages"][-6:]:
         role = "User" if isinstance(msg, HumanMessage) else "Assistant"
@@ -141,14 +143,19 @@ STANDALONE: <самостоятельный вопрос>"""
         "max_retries": MAX_RETRIES,
     }
 
-async def search_web(state: AgentState) -> Dict:
-    query = state.get("search_query") or state.get("standalone_question") or state["messages"][-1].content
+
+async def search_web(state: AgentState) -> dict:
+    query = (
+        state.get("search_query")
+        or state.get("standalone_question")
+        or state["messages"][-1].content
+    )
     # Tavily синхронный — выносим в поток, чтобы не блокировать event loop
     results = await asyncio.to_thread(tavily.search, query=query, max_results=3)
     return {"search_results": results.get("results", [])}
 
 
-async def grade_results(state: AgentState) -> Dict:
+async def grade_results(state: AgentState) -> dict:
     question = state.get("standalone_question") or state["messages"][-1].content
     results = state.get("search_results", [])
     if not results:
@@ -157,19 +164,25 @@ async def grade_results(state: AgentState) -> Dict:
     snippets = "\n\n".join([r.get("content", "")[:300] for r in results])
     prompt = f"Оцени релевантность результатов.\n\nВопрос: {question}\n\nРезультаты:\n{snippets}\n\nОтветь: 'relevant' или 'not_relevant'."
     response = (await llm.ainvoke(prompt)).content.strip().lower()
-    relevance = "relevant" if "relevant" in response and "not" not in response else "not_relevant"
+    relevance = (
+        "relevant"
+        if "relevant" in response and "not" not in response
+        else "not_relevant"
+    )
     return {"relevance": relevance}
 
 
-async def rewrite_query(state: AgentState) -> Dict:
+async def rewrite_query(state: AgentState) -> dict:
     question = state.get("standalone_question") or state["messages"][-1].content
     retry_count = state.get("retry_count", 0) + 1
-    prompt = f"Перепиши вопрос для поиска.\n\nВопрос: {question}\n\nВерни только вопрос."
+    prompt = (
+        f"Перепиши вопрос для поиска.\n\nВопрос: {question}\n\nВерни только вопрос."
+    )
     new_query = (await llm.ainvoke(prompt)).content.strip()
     return {"search_query": new_query, "retry_count": retry_count}
 
 
-async def generate_answer(state: AgentState) -> Dict:
+async def generate_answer(state: AgentState) -> dict:
     context = ""
     if state.get("search_results"):
         snippets = [r.get("content", "") for r in state["search_results"]]
@@ -183,7 +196,7 @@ async def generate_answer(state: AgentState) -> Dict:
 
     system_prompt = f"""Ты — дружелюбный ассистент.
 {summary_section}
-Контекст из поиска: {context if context else 'Нет контекста.'}
+Контекст из поиска: {context if context else "Нет контекста."}
 
 ПРАВИЛА:
 - Отвечай только на заданный вопрос.
@@ -197,10 +210,12 @@ async def generate_answer(state: AgentState) -> Dict:
     return {"final_answer": answer, "messages": [AIMessage(content=answer)]}
 
 
-async def fix_sun_times(state: AgentState) -> Dict:
+async def fix_sun_times(state: AgentState) -> dict:
     answer = state.get("final_answer", "")
-    sunrise_match = re.search(r'(?:Рассвет|Восход)[^\d]*(\d{1,2}:\d{2})', answer, re.IGNORECASE)
-    sunset_match = re.search(r'(?:Закат)[^\d]*(\d{1,2}:\d{2})', answer, re.IGNORECASE)
+    sunrise_match = re.search(
+        r"(?:Рассвет|Восход)[^\d]*(\d{1,2}:\d{2})", answer, re.IGNORECASE
+    )
+    sunset_match = re.search(r"(?:Закат)[^\d]*(\d{1,2}:\d{2})", answer, re.IGNORECASE)
     if not (sunrise_match and sunset_match):
         return {}
 
@@ -227,6 +242,7 @@ async def fix_sun_times(state: AgentState) -> Dict:
 def route_after_classification(state: AgentState) -> Literal["search", "answer"]:
     return state["intent"]
 
+
 def route_after_grading(state: AgentState) -> Literal["rewrite", "answer"]:
     relevance = state.get("relevance", "not_relevant")
     retry_count = state.get("retry_count", 0)
@@ -251,9 +267,13 @@ def build_graph(checkpointer):
 
     builder.add_edge(START, "summarize")
     builder.add_edge("summarize", "classify")
-    builder.add_conditional_edges("classify", route_after_classification, {"search": "search", "answer": "answer"})
+    builder.add_conditional_edges(
+        "classify", route_after_classification, {"search": "search", "answer": "answer"}
+    )
     builder.add_edge("search", "grade")
-    builder.add_conditional_edges("grade", route_after_grading, {"rewrite": "rewrite", "answer": "answer"})
+    builder.add_conditional_edges(
+        "grade", route_after_grading, {"rewrite": "rewrite", "answer": "answer"}
+    )
     builder.add_edge("rewrite", "search")
     builder.add_edge("answer", "fix_sun")
     builder.add_edge("fix_sun", END)

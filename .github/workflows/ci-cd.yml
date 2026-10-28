@@ -1,4 +1,4 @@
-name: CI
+name: CI/CD
 
 on:
   push:
@@ -43,3 +43,19 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
         run: pytest tests/ -v --tb=short
+
+  deploy:
+    # ⬇️ Ключевая строка: деплой только после успешного test
+    needs: test
+    # ⬇️ И только при пуше в main (не на pull_request)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger Render deploy hook
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          echo "Запускаю деплой на Render..."
+          curl -X POST "$RENDER_DEPLOY_HOOK" -sS -o /dev/null -w "HTTP %{http_code}\n"

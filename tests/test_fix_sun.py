@@ -1,5 +1,4 @@
 # tests/test_fix_sun.py
-import pytest
 from agent import fix_sun_times
 
 

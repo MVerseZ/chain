@@ -1,12 +1,13 @@
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, StreamingResponse
 from langchain_core.messages import HumanMessage
-
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from agent import build_graph, extract_text
@@ -67,7 +68,7 @@ async def stream_agent_response(request: Request, user_input: str, thread_id: st
             if text == streamed:
                 continue
             if text.startswith(streamed) and len(text) > len(streamed):
-                new_part = text[len(streamed):]
+                new_part = text[len(streamed) :]
                 streamed = text
                 if new_part:
                     yield sse_pack({"token": new_part})
@@ -87,6 +88,9 @@ async def stream_agent_response(request: Request, user_input: str, thread_id: st
         )
 
     except Exception as e:
+        # Явно пропускаем BaseException, чтобы не глотать KeyboardInterrupt/SystemExit
+        if isinstance(e, BaseException) and not isinstance(e, Exception):
+            raise
         logger.error(f"Ошибка в потоке: {e}")
         yield sse_pack({"error": str(e)}, event="error")
 
@@ -106,10 +110,11 @@ async def chat_stream(request: Request, question: str, thread_id: str = "default
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
-    with open("index.html", "r", encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+    content = await asyncio.to_thread(Path("index.html").read_text, encoding="utf-8")
+    return HTMLResponse(content=content)
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
