@@ -24,7 +24,7 @@ print(
 print("TAVILY_API_KEY:", "OK" if os.environ.get("TAVILY_API_KEY") else "НЕ НАЙДЕН")
 
 llm = ChatOpenAI(
-    model="deepseek/deepseek-chat:free",
+    model="google/gemma-4-26b-a4b-it:free",
     api_key=os.environ["OPENROUTER_API_KEY"],
     base_url="https://openrouter.ai/api/v1",
     temperature=0,
